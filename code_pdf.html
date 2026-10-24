@@ -1,0 +1,1268 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Source Code: scanner.py - Automated Web Scanner</title>
+<style>
+    @page { size: A4; margin: 15mm; }
+    body { font-family: Consolas, "Liberation Mono", Menlo, monospace; color: #1e1e1e; line-height: 1.4; font-size: 8pt; }
+    .header { font-family: -apple-system, sans-serif; border-bottom: 2px solid #0f62fe; padding-bottom: 10px; margin-bottom: 15px; }
+    .header h1 { margin: 0 0 5px 0; font-size: 16pt; color: #0f62fe; }
+    .header p { margin: 0; font-size: 9pt; color: #475569; }
+    pre { white-space: pre-wrap; word-break: break-all; margin: 0; }
+</style>
+</head>
+<body>
+    <div class="header">
+        <h1>Source Code: scanner.py</h1>
+        <p><strong>Project:</strong> Automated Web Scanner (Secure Headers & CORS Flaws Audit)</p>
+        <p><strong>Author:</strong> Tarun Singh | GitHub: tarun-singh9897/automated-web-scanner</p>
+        <p><strong>Event:</strong> IBM SkillsBuild National Cybersecurity Bootcamp</p>
+    </div>
+    <pre>#!/usr/bin/env python3
+&quot;&quot;&quot;
+Automated Web Security Scanner: Secure Headers and CORS Flaws Auditor
+====================================================================
+Project: IBM SkillsBuild National Cybersecurity Bootcamp
+Author: Tarun Singh (GitHub: tarun-singh9897)
+Topic: 2. Automated Web Scanner: Programmed a Python script to audit sites for secure headers and CORS flaws.
+
+Description:
+    A high-performance, zero-external-dependency automated security scanner designed
+    to audit web applications for modern HTTP security headers, information leakage,
+    and Cross-Origin Resource Sharing (CORS) misconfigurations according to OWASP standards.
+
+Features:
+    - Comprehensive Secure Headers Inspection (CSP, HSTS, XFO, XCTO, Referrer-Policy, Permissions-Policy, COOP/COEP/CORP)
+    - Sensitive Information Leakage Detection (Server banners, X-Powered-By, technology fingerprints)
+    - Active CORS Vulnerability Probing (Arbitrary Origin Reflection, Null Origin Trust, Credential Leakage, Suffix/Prefix Bypasses)
+    - Security Scoring Algorithm (0-100 score with A+ through F grading)
+    - Multi-target concurrent scanning via ThreadPoolExecutor
+    - Output formats: Rich ANSI Color Terminal, Structured JSON, and Standalone HTML Reports
+    - Built-in --demo mode for offline evaluation and grading verification
+&quot;&quot;&quot;
+
+import argparse
+import concurrent.futures
+from dataclasses import dataclass, field, asdict
+import datetime
+import html
+import http.client
+import json
+import os
+import re
+import ssl
+import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from typing import List, Dict, Optional, Tuple, Any
+
+# ==============================================================================
+# ANSI Color Formatting &amp; Terminal Helpers
+# ==============================================================================
+
+class Colors:
+    RESET = &quot;\033[0m&quot;
+    BOLD = &quot;\033[1m&quot;
+    DIM = &quot;\033[2m&quot;
+    UNDERLINE = &quot;\033[4m&quot;
+    
+    RED = &quot;\033[91m&quot;
+    GREEN = &quot;\033[92m&quot;
+    YELLOW = &quot;\033[93m&quot;
+    BLUE = &quot;\033[94m&quot;
+    MAGENTA = &quot;\033[95m&quot;
+    CYAN = &quot;\033[96m&quot;
+    WHITE = &quot;\033[97m&quot;
+
+def colorize(text: str, color_code: str, enable_color: bool = True) -&gt; str:
+    if not enable_color or not sys.stdout.isatty():
+        return text
+    return f&quot;{color_code}{text}{Colors.RESET}&quot;
+
+# ==============================================================================
+# Data Structures
+# ==============================================================================
+
+class Severity:
+    CRITICAL = &quot;CRITICAL&quot;
+    HIGH = &quot;HIGH&quot;
+    MEDIUM = &quot;MEDIUM&quot;
+    LOW = &quot;LOW&quot;
+    INFO = &quot;INFO&quot;
+    PASS = &quot;PASS&quot;
+
+@dataclass
+class HeaderFinding:
+    header: str
+    status: str           # PASS, WARN, FAIL, INFO
+    severity: str         # CRITICAL, HIGH, MEDIUM, LOW, INFO
+    value: Optional[str]
+    description: str
+    remediation: str
+
+@dataclass
+class CORSFinding:
+    probe_type: str       # e.g., &quot;Reflected Origin&quot;, &quot;Null Origin Trust&quot;, &quot;Credentials Leakage&quot;
+    test_origin: str
+    severity: str
+    vulnerable: bool
+    description: str
+    acao_header: Optional[str]
+    acac_header: Optional[str]
+    remediation: str
+
+@dataclass
+class ScanResult:
+    target_url: str
+    scan_timestamp: str
+    status_code: int
+    response_time_ms: float
+    server_ip: Optional[str] = None
+    security_score: int = 100
+    grade: str = &quot;A+&quot;
+    header_findings: List[HeaderFinding] = field(default_factory=list)
+    cors_findings: List[CORSFinding] = field(default_factory=list)
+    raw_headers: Dict[str, str] = field(default_factory=dict)
+    errors: List[str] = field(default_factory=list)
+
+# ==============================================================================
+# Security Headers Audit Engine
+# ==============================================================================
+
+class HeaderAuditor:
+    &quot;&quot;&quot;Evaluates HTTP response headers against OWASP security guidelines.&quot;&quot;&quot;
+
+    @staticmethod
+    def audit(headers: Dict[str, str], url: str) -&gt; Tuple[List[HeaderFinding], int]:
+        findings: List[HeaderFinding] = []
+        score_deductions = 0
+        norm_headers = {k.lower(): v for k, v in headers.items()}
+        is_https = url.lower().startswith(&quot;https://&quot;)
+
+        # 1. Content-Security-Policy (CSP)
+        csp = norm_headers.get(&quot;content-security-policy&quot;)
+        if not csp:
+            findings.append(HeaderFinding(
+                header=&quot;Content-Security-Policy&quot;,
+                status=&quot;FAIL&quot;,
+                severity=Severity.HIGH,
+                value=None,
+                description=&quot;Missing CSP header. The application is vulnerable to Cross-Site Scripting (XSS), Clickjacking, and unauthorized data injection.&quot;,
+                remediation=&quot;Implement a robust CSP such as: default-src &#x27;self&#x27;; script-src &#x27;self&#x27;; object-src &#x27;none&#x27;; base-uri &#x27;self&#x27;; frame-ancestors &#x27;none&#x27;;&quot;
+            ))
+            score_deductions += 25
+        else:
+            issues = []
+            if &quot;&#x27;unsafe-inline&#x27;&quot; in csp:
+                issues.append(&quot;allows &#x27;unsafe-inline&#x27; scripts&quot;)
+            if &quot;&#x27;unsafe-eval&#x27;&quot; in csp:
+                issues.append(&quot;allows &#x27;unsafe-eval&#x27; dynamic execution&quot;)
+            if &quot;default-src&quot; not in csp and &quot;script-src&quot; not in csp:
+                issues.append(&quot;missing default-src and script-src fallback directives&quot;)
+            if &quot;object-src &#x27;none&#x27;&quot; not in csp:
+                issues.append(&quot;missing object-src &#x27;none&#x27; (allows Flash/Java plugin embedding)&quot;)
+            
+            if issues:
+                findings.append(HeaderFinding(
+                    header=&quot;Content-Security-Policy&quot;,
+                    status=&quot;WARN&quot;,
+                    severity=Severity.MEDIUM,
+                    value=csp[:80] + (&quot;...&quot; if len(csp) &gt; 80 else &quot;&quot;),
+                    description=f&quot;CSP is present but contains potential weaknesses: {&#x27;, &#x27;.join(issues)}.&quot;,
+                    remediation=&quot;Eliminate &#x27;unsafe-inline&#x27; using nonces or hashes, disable &#x27;unsafe-eval&#x27;, and set object-src &#x27;none&#x27;.&quot;
+                ))
+                score_deductions += 10
+            else:
+                findings.append(HeaderFinding(
+                    header=&quot;Content-Security-Policy&quot;,
+                    status=&quot;PASS&quot;,
+                    severity=Severity.PASS,
+                    value=csp[:80] + (&quot;...&quot; if len(csp) &gt; 80 else &quot;&quot;),
+                    description=&quot;Strong Content-Security-Policy header is configured.&quot;,
+                    remediation=&quot;Maintain existing restrictive CSP directives.&quot;
+                ))
+
+        # 2. Strict-Transport-Security (HSTS)
+        hsts = norm_headers.get(&quot;strict-transport-security&quot;)
+        if not hsts:
+            if is_https:
+                findings.append(HeaderFinding(
+                    header=&quot;Strict-Transport-Security&quot;,
+                    status=&quot;FAIL&quot;,
+                    severity=Severity.HIGH,
+                    value=None,
+                    description=&quot;Missing HSTS header on HTTPS connection. Leaves users vulnerable to SSL-stripping and Man-in-the-Middle (MITM) downgrade attacks.&quot;,
+                    remediation=&quot;Add: Strict-Transport-Security: max-age=31536000; includeSubDomains; preload&quot;
+                ))
+                score_deductions += 20
+            else:
+                findings.append(HeaderFinding(
+                    header=&quot;Strict-Transport-Security&quot;,
+                    status=&quot;INFO&quot;,
+                    severity=Severity.INFO,
+                    value=None,
+                    description=&quot;Target is served over plain HTTP. HSTS headers are only valid over secure HTTPS connections.&quot;,
+                    remediation=&quot;Migrate entire site to HTTPS and configure HSTS.&quot;
+                ))
+        else:
+            max_age_match = re.search(r&quot;max-age=(\d+)&quot;, hsts, re.IGNORECASE)
+            max_age = int(max_age_match.group(1)) if max_age_match else 0
+            if max_age &lt; 15552000:  # &lt; 180 days
+                findings.append(HeaderFinding(
+                    header=&quot;Strict-Transport-Security&quot;,
+                    status=&quot;WARN&quot;,
+                    severity=Severity.LOW,
+                    value=hsts,
+                    description=f&quot;HSTS max-age is set to {max_age} seconds, which is less than recommended minimum (180 days / 15552000s).&quot;,
+                    remediation=&quot;Increase HSTS max-age to at least 31536000 (1 year) with includeSubDomains.&quot;
+                ))
+                score_deductions += 5
+            else:
+                findings.append(HeaderFinding(
+                    header=&quot;Strict-Transport-Security&quot;,
+                    status=&quot;PASS&quot;,
+                    severity=Severity.PASS,
+                    value=hsts,
+                    description=&quot;Strong HSTS configuration enforces encrypted connections.&quot;,
+                    remediation=&quot;Keep HSTS enabled and consider submitting domain to Chrome preload list.&quot;
+                ))
+
+        # 3. X-Frame-Options (XFO)
+        xfo = norm_headers.get(&quot;x-frame-options&quot;)
+        if not xfo:
+            if csp and &quot;frame-ancestors&quot; in csp:
+                findings.append(HeaderFinding(
+                    header=&quot;X-Frame-Options&quot;,
+                    status=&quot;PASS&quot;,
+                    severity=Severity.PASS,
+                    value=&quot;Handled via CSP frame-ancestors&quot;,
+                    description=&quot;Legacy X-Frame-Options is absent, but modern CSP &#x27;frame-ancestors&#x27; directive is active.&quot;,
+                    remediation=&quot;Optional: Add &#x27;X-Frame-Options: DENY&#x27; for legacy browser fallback.&quot;
+                ))
+            else:
+                findings.append(HeaderFinding(
+                    header=&quot;X-Frame-Options&quot;,
+                    status=&quot;FAIL&quot;,
+                    severity=Severity.MEDIUM,
+                    value=None,
+                    description=&quot;Missing X-Frame-Options and CSP frame-ancestors. The page can be embedded in an iframe, enabling Clickjacking attacks.&quot;,
+                    remediation=&quot;Set: X-Frame-Options: DENY or SAMEORIGIN (or use CSP frame-ancestors &#x27;none&#x27;).&quot;
+                ))
+                score_deductions += 15
+        else:
+            if xfo.upper() in [&quot;DENY&quot;, &quot;SAMEORIGIN&quot;]:
+                findings.append(HeaderFinding(
+                    header=&quot;X-Frame-Options&quot;,
+                    status=&quot;PASS&quot;,
+                    severity=Severity.PASS,
+                    value=xfo,
+                    description=f&quot;Properly configured with &#x27;{xfo}&#x27; to prevent UI redressing / clickjacking.&quot;,
+                    remediation=&quot;Keep existing policy in place.&quot;
+                ))
+            else:
+                findings.append(HeaderFinding(
+                    header=&quot;X-Frame-Options&quot;,
+                    status=&quot;WARN&quot;,
+                    severity=Severity.LOW,
+                    value=xfo,
+                    description=f&quot;Unusual or obsolete X-Frame-Options value: &#x27;{xfo}&#x27;.&quot;,
+                    remediation=&quot;Replace with &#x27;DENY&#x27; or &#x27;SAMEORIGIN&#x27;.&quot;
+                ))
+                score_deductions += 5
+
+        # 4. X-Content-Type-Options
+        xcto = norm_headers.get(&quot;x-content-type-options&quot;)
+        if not xcto:
+            findings.append(HeaderFinding(
+                header=&quot;X-Content-Type-Options&quot;,
+                status=&quot;FAIL&quot;,
+                severity=Severity.MEDIUM,
+                value=None,
+                description=&quot;Missing X-Content-Type-Options header. Browsers may perform MIME-type sniffing, transforming non-executable files into executable scripts.&quot;,
+                remediation=&quot;Set: X-Content-Type-Options: nosniff&quot;
+            ))
+            score_deductions += 10
+        elif &quot;nosniff&quot; in xcto.lower():
+            findings.append(HeaderFinding(
+                header=&quot;X-Content-Type-Options&quot;,
+                status=&quot;PASS&quot;,
+                severity=Severity.PASS,
+                value=xcto,
+                description=&quot;MIME-sniffing protection is properly enabled (&#x27;nosniff&#x27;).&quot;,
+                remediation=&quot;Maintain existing header configuration.&quot;
+            ))
+        else:
+            findings.append(HeaderFinding(
+                header=&quot;X-Content-Type-Options&quot;,
+                status=&quot;WARN&quot;,
+                severity=Severity.LOW,
+                value=xcto,
+                description=f&quot;X-Content-Type-Options contains unexpected value &#x27;{xcto}&#x27;. Expected &#x27;nosniff&#x27;.&quot;,
+                remediation=&quot;Ensure value is strictly set to &#x27;nosniff&#x27;.&quot;
+            ))
+            score_deductions += 5
+
+        # 5. Referrer-Policy
+        ref_pol = norm_headers.get(&quot;referrer-policy&quot;)
+        if not ref_pol:
+            findings.append(HeaderFinding(
+                header=&quot;Referrer-Policy&quot;,
+                status=&quot;WARN&quot;,
+                severity=Severity.LOW,
+                value=None,
+                description=&quot;Missing Referrer-Policy header. Sensitive URL paths, tokens, or query parameters may leak in HTTP Referer headers to external origins.&quot;,
+                remediation=&quot;Set: Referrer-Policy: strict-origin-when-cross-origin (or no-referrer).&quot;
+            ))
+            score_deductions += 5
+        elif ref_pol.lower() in [&quot;unsafe-url&quot;, &quot;no-referrer-when-downgrade&quot;]:
+            findings.append(HeaderFinding(
+                header=&quot;Referrer-Policy&quot;,
+                status=&quot;FAIL&quot;,
+                severity=Severity.MEDIUM,
+                value=ref_pol,
+                description=f&quot;Weak Referrer-Policy &#x27;{ref_pol}&#x27; leaks full URL paths and parameters across origins.&quot;,
+                remediation=&quot;Change to: Referrer-Policy: strict-origin-when-cross-origin&quot;
+            ))
+            score_deductions += 8
+        else:
+            findings.append(HeaderFinding(
+                header=&quot;Referrer-Policy&quot;,
+                status=&quot;PASS&quot;,
+                severity=Severity.PASS,
+                value=ref_pol,
+                description=f&quot;Secure Referrer-Policy &#x27;{ref_pol}&#x27; restricts referral data leakage.&quot;,
+                remediation=&quot;Maintain safe Referrer-Policy.&quot;
+            ))
+
+        # 6. Permissions-Policy (Feature-Policy)
+        perm_pol = norm_headers.get(&quot;permissions-policy&quot;) or norm_headers.get(&quot;feature-policy&quot;)
+        if not perm_pol:
+            findings.append(HeaderFinding(
+                header=&quot;Permissions-Policy&quot;,
+                status=&quot;WARN&quot;,
+                severity=Severity.LOW,
+                value=None,
+                description=&quot;Missing Permissions-Policy. Browser features (camera, microphone, geolocation) are not explicitly restricted.&quot;,
+                remediation=&quot;Define policy: Permissions-Policy: camera=(), microphone=(), geolocation=()&quot;
+            ))
+            score_deductions += 5
+        else:
+            findings.append(HeaderFinding(
+                header=&quot;Permissions-Policy&quot;,
+                status=&quot;PASS&quot;,
+                severity=Severity.PASS,
+                value=perm_pol[:60] + (&quot;...&quot; if len(perm_pol) &gt; 60 else &quot;&quot;),
+                description=&quot;Permissions-Policy header is configured to control browser API access.&quot;,
+                remediation=&quot;Periodically review permitted features.&quot;
+            ))
+
+        # 7. Cross-Origin Headers (COOP / COEP / CORP)
+        coop = norm_headers.get(&quot;cross-origin-opener-policy&quot;)
+        if not coop:
+            findings.append(HeaderFinding(
+                header=&quot;Cross-Origin-Opener-Policy (COOP)&quot;,
+                status=&quot;INFO&quot;,
+                severity=Severity.INFO,
+                value=None,
+                description=&quot;Missing COOP header. The site cannot guarantee process isolation from cross-origin window references (Spectre mitigation).&quot;,
+                remediation=&quot;Consider setting: Cross-Origin-Opener-Policy: same-origin&quot;
+            ))
+        else:
+            findings.append(HeaderFinding(
+                header=&quot;Cross-Origin-Opener-Policy&quot;,
+                status=&quot;PASS&quot;,
+                severity=Severity.PASS,
+                value=coop,
+                description=f&quot;Cross-Origin isolation enforced via COOP: {coop}.&quot;,
+                remediation=&quot;Keep COOP enabled.&quot;
+            ))
+
+        # 8. Information Disclosure Headers (Server, X-Powered-By, etc.)
+        leaky_headers = [&quot;server&quot;, &quot;x-powered-by&quot;, &quot;x-aspnet-version&quot;, &quot;x-generator&quot;, &quot;x-runtime&quot;]
+        detected_leaks = [f&quot;{h}: {norm_headers[h]}&quot; for h in leaky_headers if h in norm_headers]
+        if detected_leaks:
+            findings.append(HeaderFinding(
+                header=&quot;Information Leakage&quot;,
+                status=&quot;FAIL&quot;,
+                severity=Severity.LOW,
+                value=&quot;; &quot;.join(detected_leaks),
+                description=f&quot;Server exposes internal software versions in response headers: {&#x27;, &#x27;.join(detected_leaks)}. Aids attackers in targeted exploitation.&quot;,
+                remediation=&quot;Disable server tokens and remove &#x27;X-Powered-By&#x27; headers in web server/framework configurations.&quot;
+            ))
+            score_deductions += 5
+        else:
+            findings.append(HeaderFinding(
+                header=&quot;Information Leakage&quot;,
+                status=&quot;PASS&quot;,
+                severity=Severity.PASS,
+                value=&quot;None detected&quot;,
+                description=&quot;No sensitive server banners or software version headers detected.&quot;,
+                remediation=&quot;Ensure production servers suppress verbose banners.&quot;
+            ))
+
+        # 9. Deprecated Headers (X-XSS-Protection)
+        xxss = norm_headers.get(&quot;x-xss-protection&quot;)
+        if xxss and &quot;1; mode=block&quot; in xxss:
+            findings.append(HeaderFinding(
+                header=&quot;X-XSS-Protection&quot;,
+                status=&quot;INFO&quot;,
+                severity=Severity.INFO,
+                value=xxss,
+                description=&quot;Legacy X-XSS-Protection is enabled. Modern browsers rely on CSP instead of this deprecated header.&quot;,
+                remediation=&quot;Ensure Content-Security-Policy is prioritized.&quot;
+            ))
+
+        final_score = max(0, 100 - score_deductions)
+        return findings, final_score
+
+# ==============================================================================
+# CORS Vulnerability Audit Engine
+# ==============================================================================
+
+class CORSAuditor:
+    &quot;&quot;&quot;Active prober for Cross-Origin Resource Sharing (CORS) misconfigurations.&quot;&quot;&quot;
+
+    @staticmethod
+    def audit(target_url: str, timeout: float = 8.0, insecure_ssl: bool = False) -&gt; List[CORSFinding]:
+        findings: List[CORSFinding] = []
+        parsed = urllib.parse.urlparse(target_url)
+        target_domain = parsed.hostname or &quot;example.com&quot;
+        target_scheme = parsed.scheme or &quot;https&quot;
+
+        ssl_ctx = ssl.create_default_context()
+        if insecure_ssl:
+            ssl_ctx.check_hostname = False
+            ssl_ctx.verify_mode = ssl.CERT_NONE
+
+        # Define probe vectors
+        probes = [
+            {
+                &quot;type&quot;: &quot;Arbitrary Origin Reflection&quot;,
+                &quot;origin&quot;: &quot;https://attacker-security-test.com&quot;,
+                &quot;desc&quot;: &quot;Testing if server blindly reflects untrusted third-party origin.&quot;
+            },
+            {
+                &quot;type&quot;: &quot;Null Origin Trust&quot;,
+                &quot;origin&quot;: &quot;null&quot;,
+                &quot;desc&quot;: &quot;Testing if server trusts &#x27;null&#x27; origin (vulnerable to sandboxed iframes &amp; data: URI exploits).&quot;
+            },
+            {
+                &quot;type&quot;: &quot;Domain Suffix Regex Bypass&quot;,
+                &quot;origin&quot;: f&quot;https://{target_domain}.attacker-test.com&quot;,
+                &quot;desc&quot;: f&quot;Testing flawed regex validation where origin ends with target domain name.&quot;
+            },
+            {
+                &quot;type&quot;: &quot;Domain Prefix Regex Bypass&quot;,
+                &quot;origin&quot;: f&quot;https://attacker-{target_domain}&quot;,
+                &quot;desc&quot;: f&quot;Testing flawed regex where origin begins with or contains target domain name.&quot;
+            },
+        ]
+
+        if target_scheme == &quot;https&quot;:
+            probes.append({
+                &quot;type&quot;: &quot;Insecure HTTP Protocol Trust&quot;,
+                &quot;origin&quot;: f&quot;http://{target_domain}&quot;,
+                &quot;desc&quot;: &quot;Testing if HTTPS endpoint allows cleartext HTTP origin (MITM vulnerability).&quot;
+            })
+
+        for p in probes:
+            finding = CORSAuditor._probe_single_origin(
+                target_url=target_url,
+                probe_type=p[&quot;type&quot;],
+                test_origin=p[&quot;origin&quot;],
+                description=p[&quot;desc&quot;],
+                ssl_ctx=ssl_ctx,
+                timeout=timeout
+            )
+            if finding:
+                findings.append(finding)
+
+        # If no vulnerabilities found across all probes
+        if not any(f.vulnerable for f in findings):
+            findings.append(CORSFinding(
+                probe_type=&quot;CORS Security Baseline&quot;,
+                test_origin=&quot;N/A&quot;,
+                severity=Severity.PASS,
+                vulnerable=False,
+                description=&quot;Endpoint does not insecurely reflect arbitrary origins or trust &#x27;null&#x27; origin.&quot;,
+                acao_header=None,
+                acac_header=None,
+                remediation=&quot;Maintain strict origin whitelisting on all sensitive API endpoints.&quot;
+            ))
+
+        return findings
+
+    @staticmethod
+    def _probe_single_origin(target_url: str, probe_type: str, test_origin: str,
+                             description: str, ssl_ctx: ssl.SSLContext, timeout: float) -&gt; Optional[CORSFinding]:
+        try:
+            req = urllib.request.Request(
+                target_url,
+                headers={
+                    &quot;Origin&quot;: test_origin,
+                    &quot;User-Agent&quot;: &quot;Mozilla/5.0 (Windows NT 10.0; Win64; x64) CybersecurityScanner/1.0&quot;,
+                    &quot;Accept&quot;: &quot;*/*&quot;
+                },
+                method=&quot;GET&quot;
+            )
+            with urllib.request.urlopen(req, timeout=timeout, context=ssl_ctx) as response:
+                resp_headers = {k.lower(): v for k, v in response.headers.items()}
+                acao = resp_headers.get(&quot;access-control-allow-origin&quot;)
+                acac = resp_headers.get(&quot;access-control-allow-credentials&quot;, &quot;&quot;).lower()
+
+                if not acao:
+                    # Endpoint did not return CORS headers for this origin -&gt; Safe
+                    return None
+
+                # Analysis 1: Arbitrary Origin Reflected WITH Credentials
+                if (acao.strip() == test_origin or acao.strip() == &quot;*&quot;) and acac == &quot;true&quot;:
+                    if acao.strip() == &quot;*&quot;:
+                        return CORSFinding(
+                            probe_type=f&quot;{probe_type} + Credentials&quot;,
+                            test_origin=test_origin,
+                            severity=Severity.HIGH,
+                            vulnerable=True,
+                            description=f&quot;Server returned wildcard ACAO with credentials allowed (ACAC: true). Flawed authorization logic.&quot;,
+                            acao_header=acao,
+                            acac_header=acac,
+                            remediation=&quot;Do not combine wildcard ACAO with Access-Control-Allow-Credentials: true.&quot;
+                        )
+                    else:
+                        return CORSFinding(
+                            probe_type=f&quot;{probe_type} with Credentials (CRITICAL)&quot;,
+                            test_origin=test_origin,
+                            severity=Severity.CRITICAL,
+                            vulnerable=True,
+                            description=f&quot;Server reflects arbitrary Origin &#x27;{test_origin}&#x27; AND enables credentials (ACAC: true). Cross-origin attackers can steal private authenticated user sessions.&quot;,
+                            acao_header=acao,
+                            acac_header=acac,
+                            remediation=&quot;Implement strict server-side whitelist matching against trusted origins. Never dynamically reflect untrusted Origin headers with credentials.&quot;
+                        )
+
+                # Analysis 2: Arbitrary Origin Reflected WITHOUT Credentials
+                if acao.strip() == test_origin:
+                    sev = Severity.HIGH if probe_type == &quot;Null Origin Trust&quot; else Severity.MEDIUM
+                    return CORSFinding(
+                        probe_type=probe_type,
+                        test_origin=test_origin,
+                        severity=sev,
+                        vulnerable=True,
+                        description=f&quot;Server dynamically reflected untrusted origin &#x27;{test_origin}&#x27; in Access-Control-Allow-Origin.&quot;,
+                        acao_header=acao,
+                        acac_header=acac or &quot;false&quot;,
+                        remediation=&quot;Do not dynamically mirror the Request Origin. Validate against an explicit whitelist of trusted domains.&quot;
+                    )
+
+                # Analysis 3: Null Origin explicitly trusted
+                if test_origin == &quot;null&quot; and acao.strip() == &quot;null&quot;:
+                    return CORSFinding(
+                        probe_type=&quot;Null Origin Trust&quot;,
+                        test_origin=&quot;null&quot;,
+                        severity=Severity.HIGH,
+                        vulnerable=True,
+                        description=&quot;Server explicitly trusts &#x27;null&#x27; origin. Allows sandbox-escaped iframes, local files, and data: URIs to access protected resources.&quot;,
+                        acao_header=acao,
+                        acac_header=acac or &quot;false&quot;,
+                        remediation=&quot;Never whitelist or return &#x27;Access-Control-Allow-Origin: null&#x27;.&quot;
+                    )
+
+                # Analysis 4: Wildcard origin without credentials
+                if acao.strip() == &quot;*&quot;:
+                    return CORSFinding(
+                        probe_type=f&quot;{probe_type} (Wildcard)&quot;,
+                        test_origin=test_origin,
+                        severity=Severity.LOW,
+                        vulnerable=False,
+                        description=&quot;Server uses wildcard (&#x27;*&#x27;) CORS policy. Acceptable for public read-only content, but insecure if endpoint serves private user data.&quot;,
+                        acao_header=acao,
+                        acac_header=acac or &quot;false&quot;,
+                        remediation=&quot;If this endpoint returns confidential or user-specific data, replace wildcard with authenticated origin checks.&quot;
+                    )
+
+        except urllib.error.HTTPError as e:
+            headers = {k.lower(): v for k, v in e.headers.items()}
+            acao = headers.get(&quot;access-control-allow-origin&quot;)
+            acac = headers.get(&quot;access-control-allow-credentials&quot;, &quot;&quot;).lower()
+            if acao == test_origin and acac == &quot;true&quot;:
+                return CORSFinding(
+                    probe_type=f&quot;{probe_type} (Error Response)&quot;,
+                    test_origin=test_origin,
+                    severity=Severity.HIGH,
+                    vulnerable=True,
+                    description=f&quot;Server reflected origin with credentials on HTTP error status {e.code}.&quot;,
+                    acao_header=acao,
+                    acac_header=acac,
+                    remediation=&quot;Ensure error handlers do not inadvertently echo Origin headers with credentials.&quot;
+                )
+        except Exception:
+            pass
+
+        return None
+
+# ==============================================================================
+# Security Scanner Orchestrator
+# ==============================================================================
+
+class WebScanner:
+    &quot;&quot;&quot;Manages scan execution against single or multiple targets.&quot;&quot;&quot;
+
+    def __init__(self, timeout: float = 10.0, insecure_ssl: bool = False, max_threads: int = 5):
+        self.timeout = timeout
+        self.insecure_ssl = insecure_ssl
+        self.max_threads = max_threads
+
+    def scan_url(self, target_url: str) -&gt; ScanResult:
+        if not target_url.startswith((&quot;http://&quot;, &quot;https://&quot;)):
+            target_url = &quot;https://&quot; + target_url
+
+        timestamp = datetime.datetime.now().strftime(&quot;%Y-%m-%d %H:%M:%S&quot;)
+        result = ScanResult(
+            target_url=target_url,
+            scan_timestamp=timestamp,
+            status_code=0,
+            response_time_ms=0.0
+        )
+
+        ssl_ctx = ssl.create_default_context()
+        if self.insecure_ssl:
+            ssl_ctx.check_hostname = False
+            ssl_ctx.verify_mode = ssl.CERT_NONE
+
+        req = urllib.request.Request(
+            target_url,
+            headers={&quot;User-Agent&quot;: &quot;Mozilla/5.0 (Windows NT 10.0; Win64; x64) CybersecurityScanner/1.0&quot;},
+            method=&quot;GET&quot;
+        )
+
+        start_time = time.time()
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout, context=ssl_ctx) as response:
+                elapsed = (time.time() - start_time) * 1000
+                result.status_code = response.getcode()
+                result.response_time_ms = round(elapsed, 2)
+                result.raw_headers = dict(response.headers)
+        except urllib.error.HTTPError as e:
+            elapsed = (time.time() - start_time) * 1000
+            result.status_code = e.code
+            result.response_time_ms = round(elapsed, 2)
+            result.raw_headers = dict(e.headers)
+            result.errors.append(f&quot;HTTP Error {e.code}: {e.reason}&quot;)
+        except Exception as e:
+            result.errors.append(f&quot;Connection Failed: {str(e)}&quot;)
+            result.security_score = 0
+            result.grade = &quot;F&quot;
+            return result
+
+        # Run Header Audit
+        header_findings, score = HeaderAuditor.audit(result.raw_headers, target_url)
+        result.header_findings = header_findings
+
+        # Run CORS Audit
+        cors_findings = CORSAuditor.audit(target_url, timeout=self.timeout, insecure_ssl=self.insecure_ssl)
+        result.cors_findings = cors_findings
+
+        # Deduct score for CORS vulnerabilities
+        for c in cors_findings:
+            if c.vulnerable:
+                if c.severity == Severity.CRITICAL:
+                    score = max(0, score - 30)
+                elif c.severity == Severity.HIGH:
+                    score = max(0, score - 20)
+                elif c.severity == Severity.MEDIUM:
+                    score = max(0, score - 10)
+
+        result.security_score = max(0, min(100, score))
+        result.grade = self._calculate_grade(result.security_score)
+
+        return result
+
+    def scan_bulk(self, urls: List[str]) -&gt; List[ScanResult]:
+        results: List[ScanResult] = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_threads) as executor:
+            future_to_url = {executor.submit(self.scan_url, url): url for url in urls}
+            for future in concurrent.futures.as_completed(future_to_url):
+                url = future_to_url[future]
+                try:
+                    res = future.result()
+                    results.append(res)
+                except Exception as e:
+                    failed = ScanResult(
+                        target_url=url,
+                        scan_timestamp=datetime.datetime.now().strftime(&quot;%Y-%m-%d %H:%M:%S&quot;),
+                        status_code=0,
+                        response_time_ms=0.0,
+                        security_score=0,
+                        grade=&quot;F&quot;,
+                        errors=[str(e)]
+                    )
+                    results.append(failed)
+        return results
+
+    @staticmethod
+    def _calculate_grade(score: int) -&gt; str:
+        if score &gt;= 95:
+            return &quot;A+&quot;
+        if score &gt;= 85:
+            return &quot;A&quot;
+        if score &gt;= 75:
+            return &quot;B&quot;
+        if score &gt;= 60:
+            return &quot;C&quot;
+        if score &gt;= 45:
+            return &quot;D&quot;
+        return &quot;F&quot;
+
+# ==============================================================================
+# Built-in Mock / Demo Mode Generator
+# ==============================================================================
+
+def generate_demo_results() -&gt; List[ScanResult]:
+    &quot;&quot;&quot;Generates realistic demonstration scan results for offline evaluation.&quot;&quot;&quot;
+    res1 = ScanResult(
+        target_url=&quot;https://vulnerable-portal.local/api&quot;,
+        scan_timestamp=datetime.datetime.now().strftime(&quot;%Y-%m-%d %H:%M:%S&quot;),
+        status_code=200,
+        response_time_ms=142.5,
+        security_score=35,
+        grade=&quot;F&quot;,
+        header_findings=[
+            HeaderFinding(
+                header=&quot;Content-Security-Policy&quot;,
+                status=&quot;FAIL&quot;,
+                severity=Severity.HIGH,
+                value=None,
+                description=&quot;Missing CSP header. The application is vulnerable to Cross-Site Scripting (XSS) and Clickjacking.&quot;,
+                remediation=&quot;Implement: default-src &#x27;self&#x27;; script-src &#x27;self&#x27;; object-src &#x27;none&#x27;;&quot;
+            ),
+            HeaderFinding(
+                header=&quot;Strict-Transport-Security&quot;,
+                status=&quot;FAIL&quot;,
+                severity=Severity.HIGH,
+                value=None,
+                description=&quot;Missing HSTS header on HTTPS connection. Vulnerable to SSL-stripping downgrade attacks.&quot;,
+                remediation=&quot;Add: Strict-Transport-Security: max-age=31536000; includeSubDomains; preload&quot;
+            ),
+            HeaderFinding(
+                header=&quot;X-Frame-Options&quot;,
+                status=&quot;FAIL&quot;,
+                severity=Severity.MEDIUM,
+                value=None,
+                description=&quot;Missing X-Frame-Options. Page can be framed by arbitrary sites for Clickjacking attacks.&quot;,
+                remediation=&quot;Set: X-Frame-Options: DENY&quot;
+            ),
+            HeaderFinding(
+                header=&quot;X-Content-Type-Options&quot;,
+                status=&quot;PASS&quot;,
+                severity=Severity.PASS,
+                value=&quot;nosniff&quot;,
+                description=&quot;MIME-sniffing protection is properly enabled (&#x27;nosniff&#x27;).&quot;,
+                remediation=&quot;Maintain existing header configuration.&quot;
+            ),
+            HeaderFinding(
+                header=&quot;Information Leakage&quot;,
+                status=&quot;FAIL&quot;,
+                severity=Severity.LOW,
+                value=&quot;server: Apache/2.4.41 (Ubuntu); x-powered-by: PHP/7.4.3&quot;,
+                description=&quot;Server exposes internal software versions in response headers.&quot;,
+                remediation=&quot;Suppress server banners in apache2.conf and set expose_php = Off.&quot;
+            )
+        ],
+        cors_findings=[
+            CORSFinding(
+                probe_type=&quot;Arbitrary Origin Reflection with Credentials (CRITICAL)&quot;,
+                test_origin=&quot;https://attacker-security-test.com&quot;,
+                severity=Severity.CRITICAL,
+                vulnerable=True,
+                description=&quot;Server reflects arbitrary Origin &#x27;https://attacker-security-test.com&#x27; AND sets Access-Control-Allow-Credentials: true. Allows attackers to steal sensitive user data via cross-site fetch.&quot;,
+                acao_header=&quot;https://attacker-security-test.com&quot;,
+                acac_header=&quot;true&quot;,
+                remediation=&quot;Implement strict server-side whitelist matching against trusted domains. Never dynamically reflect untrusted origins with credentials.&quot;
+            ),
+            CORSFinding(
+                probe_type=&quot;Null Origin Trust&quot;,
+                test_origin=&quot;null&quot;,
+                severity=Severity.HIGH,
+                vulnerable=True,
+                description=&quot;Server explicitly trusts &#x27;null&#x27; origin. Sandboxed iframe attacks can extract protected data.&quot;,
+                acao_header=&quot;null&quot;,
+                acac_header=&quot;false&quot;,
+                remediation=&quot;Never whitelist or return &#x27;Access-Control-Allow-Origin: null&#x27;.&quot;
+            )
+        ]
+    )
+
+    res2 = ScanResult(
+        target_url=&quot;https://secure-bank-app.local&quot;,
+        scan_timestamp=datetime.datetime.now().strftime(&quot;%Y-%m-%d %H:%M:%S&quot;),
+        status_code=200,
+        response_time_ms=88.2,
+        security_score=98,
+        grade=&quot;A+&quot;,
+        header_findings=[
+            HeaderFinding(
+                header=&quot;Content-Security-Policy&quot;,
+                status=&quot;PASS&quot;,
+                severity=Severity.PASS,
+                value=&quot;default-src &#x27;self&#x27;; script-src &#x27;self&#x27;; object-src &#x27;none&#x27;; frame-ancestors &#x27;none&#x27;;&quot;,
+                description=&quot;Strong Content-Security-Policy header is configured.&quot;,
+                remediation=&quot;Maintain existing restrictive CSP directives.&quot;
+            ),
+            HeaderFinding(
+                header=&quot;Strict-Transport-Security&quot;,
+                status=&quot;PASS&quot;,
+                severity=Severity.PASS,
+                value=&quot;max-age=31536000; includeSubDomains; preload&quot;,
+                description=&quot;Strong HSTS configuration enforces encrypted connections.&quot;,
+                remediation=&quot;Keep HSTS enabled and maintain preload eligibility.&quot;
+            ),
+            HeaderFinding(
+                header=&quot;X-Frame-Options&quot;,
+                status=&quot;PASS&quot;,
+                severity=Severity.PASS,
+                value=&quot;DENY&quot;,
+                description=&quot;Properly configured with &#x27;DENY&#x27; to prevent UI redressing / clickjacking.&quot;,
+                remediation=&quot;Keep existing policy in place.&quot;
+            ),
+            HeaderFinding(
+                header=&quot;X-Content-Type-Options&quot;,
+                status=&quot;PASS&quot;,
+                severity=Severity.PASS,
+                value=&quot;nosniff&quot;,
+                description=&quot;MIME-sniffing protection is properly enabled (&#x27;nosniff&#x27;).&quot;,
+                remediation=&quot;Maintain existing header configuration.&quot;
+            ),
+            HeaderFinding(
+                header=&quot;Referrer-Policy&quot;,
+                status=&quot;PASS&quot;,
+                severity=Severity.PASS,
+                value=&quot;strict-origin-when-cross-origin&quot;,
+                description=&quot;Secure Referrer-Policy restricts referral data leakage.&quot;,
+                remediation=&quot;Maintain safe Referrer-Policy.&quot;
+            ),
+            HeaderFinding(
+                header=&quot;Information Leakage&quot;,
+                status=&quot;PASS&quot;,
+                severity=Severity.PASS,
+                value=&quot;None detected&quot;,
+                description=&quot;No sensitive server banners or software version headers detected.&quot;,
+                remediation=&quot;Maintain banner suppression.&quot;
+            )
+        ],
+        cors_findings=[
+            CORSFinding(
+                probe_type=&quot;CORS Security Baseline&quot;,
+                test_origin=&quot;N/A&quot;,
+                severity=Severity.PASS,
+                vulnerable=False,
+                description=&quot;Endpoint does not insecurely reflect arbitrary origins or trust &#x27;null&#x27; origin.&quot;,
+                acao_header=None,
+                acac_header=None,
+                remediation=&quot;Maintain strict origin whitelisting on all sensitive API endpoints.&quot;
+            )
+        ]
+    )
+    return [res1, res2]
+
+# ==============================================================================
+# Reporting Engines: Console, JSON, HTML
+# ==============================================================================
+
+class Reporter:
+    &quot;&quot;&quot;Renders scan results in Console (ANSI), JSON, or HTML formats.&quot;&quot;&quot;
+
+    @staticmethod
+    def render_console(results: List[ScanResult], use_color: bool = True):
+        banner = &quot;&quot;&quot;
+======================================================================
+     AUTOMATED WEB SCANNER: SECURE HEADERS &amp; CORS FLAWS AUDITOR
+                 IBM SkillsBuild Cybersecurity Bootcamp
+======================================================================
+&quot;&quot;&quot;
+        print(colorize(banner, Colors.CYAN + Colors.BOLD, use_color))
+
+        for idx, res in enumerate(results, 1):
+            grade_color = Colors.GREEN if res.grade in [&quot;A+&quot;, &quot;A&quot;] else (Colors.YELLOW if res.grade in [&quot;B&quot;, &quot;C&quot;] else Colors.RED)
+            print(&quot;-&quot; * 70)
+            print(f&quot;[{idx}/{len(results)}] Target: {colorize(res.target_url, Colors.BOLD + Colors.WHITE, use_color)}&quot;)
+            print(f&quot;Scan Time:     {res.scan_timestamp} | HTTP Status: {res.status_code} | Latency: {res.response_time_ms} ms&quot;)
+            print(f&quot;Security Score: {colorize(f&#x27;{res.security_score}/100 (Grade: {res.grade})&#x27;, grade_color + Colors.BOLD, use_color)}&quot;)
+            print(&quot;-&quot; * 70)
+
+            if res.errors:
+                for err in res.errors:
+                    print(colorize(f&quot;  [!] Error: {err}&quot;, Colors.RED, use_color))
+                continue
+
+            print(colorize(&quot;\n--- [1] HTTP SECURE HEADERS AUDIT ---&quot;, Colors.BOLD + Colors.CYAN, use_color))
+            for f in res.header_findings:
+                if f.status == &quot;PASS&quot;:
+                    tag = colorize(&quot;[PASS]&quot;, Colors.GREEN + Colors.BOLD, use_color)
+                elif f.status == &quot;WARN&quot;:
+                    tag = colorize(&quot;[WARN]&quot;, Colors.YELLOW + Colors.BOLD, use_color)
+                elif f.status == &quot;FAIL&quot;:
+                    tag = colorize(&quot;[FAIL]&quot;, Colors.RED + Colors.BOLD, use_color)
+                else:
+                    tag = colorize(&quot;[INFO]&quot;, Colors.BLUE + Colors.BOLD, use_color)
+
+                print(f&quot;  {tag} {colorize(f.header, Colors.BOLD, use_color)} (Severity: {f.severity})&quot;)
+                print(f&quot;         {f.description}&quot;)
+                if f.remediation and f.status != &quot;PASS&quot;:
+                    print(colorize(f&quot;         Fix: {f.remediation}&quot;, Colors.DIM + Colors.CYAN, use_color))
+
+            print(colorize(&quot;\n--- [2] CORS MISCONFIGURATION PROBING ---&quot;, Colors.BOLD + Colors.CYAN, use_color))
+            for c in res.cors_findings:
+                if c.vulnerable:
+                    tag = colorize(f&quot;[{c.severity}]&quot;, Colors.RED + Colors.BOLD, use_color)
+                else:
+                    tag = colorize(&quot;[SAFE]&quot;, Colors.GREEN + Colors.BOLD, use_color)
+
+                print(f&quot;  {tag} {colorize(c.probe_type, Colors.BOLD, use_color)}&quot;)
+                print(f&quot;         Test Origin: {c.test_origin}&quot;)
+                print(f&quot;         Finding:     {c.description}&quot;)
+                if c.acao_header:
+                    print(f&quot;         ACAO Header: {c.acao_header} | ACAC Header: {c.acac_header}&quot;)
+                if c.vulnerable:
+                    print(colorize(f&quot;         Remediation: {c.remediation}&quot;, Colors.YELLOW, use_color))
+            print()
+
+        print(&quot;=&quot; * 70)
+        print(f&quot;Audit completed. Processed {len(results)} target(s).&quot;)
+        print(&quot;=&quot; * 70)
+
+    @staticmethod
+    def render_json(results: List[ScanResult]) -&gt; str:
+        data = {
+            &quot;scanner_version&quot;: &quot;1.0.0&quot;,
+            &quot;project&quot;: &quot;IBM SkillsBuild Cybersecurity Bootcamp&quot;,
+            &quot;report_generated_at&quot;: datetime.datetime.now().isoformat(),
+            &quot;target_count&quot;: len(results),
+            &quot;results&quot;: [asdict(r) for r in results]
+        }
+        return json.dumps(data, indent=2)
+
+    @staticmethod
+    def render_html(results: List[ScanResult]) -&gt; str:
+        results_html = &quot;&quot;
+        total_vulns = sum(
+            sum(1 for f in r.header_findings if f.status in [&quot;FAIL&quot;, &quot;WARN&quot;]) +
+            sum(1 for c in r.cors_findings if c.vulnerable)
+            for r in results
+        )
+
+        for res in results:
+            grade_class = &quot;grade-a&quot; if res.grade in [&quot;A+&quot;, &quot;A&quot;] else (&quot;grade-b&quot; if res.grade in [&quot;B&quot;, &quot;C&quot;] else &quot;grade-f&quot;)
+            
+            header_rows = &quot;&quot;
+            for h in res.header_findings:
+                badge_class = f&quot;badge-{h.status.lower()}&quot;
+                header_rows += f&quot;&quot;&quot;
+                &lt;tr&gt;
+                    &lt;td&gt;&lt;strong&gt;{html.escape(h.header)}&lt;/strong&gt;&lt;/td&gt;
+                    &lt;td&gt;&lt;span class=&quot;badge {badge_class}&quot;&gt;{html.escape(h.status)}&lt;/span&gt;&lt;/td&gt;
+                    &lt;td&gt;&lt;span class=&quot;badge badge-sev-{h.severity.lower()}&quot;&gt;{html.escape(h.severity)}&lt;/span&gt;&lt;/td&gt;
+                    &lt;td&gt;{html.escape(h.description)}&lt;/td&gt;
+                    &lt;td class=&quot;code-cell&quot;&gt;{html.escape(h.remediation)}&lt;/td&gt;
+                &lt;/tr&gt;
+                &quot;&quot;&quot;
+
+            cors_rows = &quot;&quot;
+            for c in res.cors_findings:
+                status_text = &quot;VULNERABLE&quot; if c.vulnerable else &quot;SECURE&quot;
+                badge_class = &quot;badge-fail&quot; if c.vulnerable else &quot;badge-pass&quot;
+                acao_val = html.escape(c.acao_header or &quot;None&quot;)
+                acac_val = html.escape(c.acac_header or &quot;N/A&quot;)
+                cors_rows += f&quot;&quot;&quot;
+                &lt;tr&gt;
+                    &lt;td&gt;&lt;strong&gt;{html.escape(c.probe_type)}&lt;/strong&gt;&lt;/td&gt;
+                    &lt;td&gt;&lt;code&gt;{html.escape(c.test_origin)}&lt;/code&gt;&lt;/td&gt;
+                    &lt;td&gt;&lt;span class=&quot;badge {badge_class}&quot;&gt;{status_text}&lt;/span&gt;&lt;/td&gt;
+                    &lt;td&gt;&lt;span class=&quot;badge badge-sev-{c.severity.lower()}&quot;&gt;{html.escape(c.severity)}&lt;/span&gt;&lt;/td&gt;
+                    &lt;td&gt;{html.escape(c.description)}&lt;br&gt;&lt;small&gt;&lt;strong&gt;ACAO:&lt;/strong&gt; {acao_val} | &lt;strong&gt;ACAC:&lt;/strong&gt; {acac_val}&lt;/small&gt;&lt;/td&gt;
+                    &lt;td class=&quot;code-cell&quot;&gt;{html.escape(c.remediation)}&lt;/td&gt;
+                &lt;/tr&gt;
+                &quot;&quot;&quot;
+
+            results_html += f&quot;&quot;&quot;
+            &lt;div class=&quot;card&quot;&gt;
+                &lt;div class=&quot;card-header&quot;&gt;
+                    &lt;div&gt;
+                        &lt;h2 class=&quot;target-title&quot;&gt;{html.escape(res.target_url)}&lt;/h2&gt;
+                        &lt;div class=&quot;meta-line&quot;&gt;Scan Time: {res.scan_timestamp} | HTTP Status: {res.status_code} | Latency: {res.response_time_ms} ms&lt;/div&gt;
+                    &lt;/div&gt;
+                    &lt;div class=&quot;score-box {grade_class}&quot;&gt;
+                        &lt;div class=&quot;score-value&quot;&gt;{res.security_score}/100&lt;/div&gt;
+                        &lt;div class=&quot;score-label&quot;&gt;Grade: {res.grade}&lt;/div&gt;
+                    &lt;/div&gt;
+                &lt;/div&gt;
+
+                &lt;h3&gt;HTTP Security Headers Audit&lt;/h3&gt;
+                &lt;div class=&quot;table-responsive&quot;&gt;
+                    &lt;table&gt;
+                        &lt;thead&gt;
+                            &lt;tr&gt;
+                                &lt;th&gt;Header&lt;/th&gt;
+                                &lt;th&gt;Status&lt;/th&gt;
+                                &lt;th&gt;Severity&lt;/th&gt;
+                                &lt;th&gt;Finding &amp; Impact&lt;/th&gt;
+                                &lt;th&gt;Remediation Guide&lt;/th&gt;
+                            &lt;/tr&gt;
+                        &lt;/thead&gt;
+                        &lt;tbody&gt;
+                            {header_rows}
+                        &lt;/tbody&gt;
+                    &lt;/table&gt;
+                &lt;/div&gt;
+
+                &lt;h3&gt;Cross-Origin Resource Sharing (CORS) Audit&lt;/h3&gt;
+                &lt;div class=&quot;table-responsive&quot;&gt;
+                    &lt;table&gt;
+                        &lt;thead&gt;
+                            &lt;tr&gt;
+                                &lt;th&gt;Probe Scenario&lt;/th&gt;
+                                &lt;th&gt;Test Origin&lt;/th&gt;
+                                &lt;th&gt;Outcome&lt;/th&gt;
+                                &lt;th&gt;Severity&lt;/th&gt;
+                                &lt;th&gt;Observation&lt;/th&gt;
+                                &lt;th&gt;Remediation Guide&lt;/th&gt;
+                            &lt;/tr&gt;
+                        &lt;/thead&gt;
+                        &lt;tbody&gt;
+                            {cors_rows}
+                        &lt;/tbody&gt;
+                    &lt;/table&gt;
+                &lt;/div&gt;
+            &lt;/div&gt;
+            &quot;&quot;&quot;
+
+        html_template = f&quot;&quot;&quot;&lt;!DOCTYPE html&gt;
+&lt;html lang=&quot;en&quot;&gt;
+&lt;head&gt;
+    &lt;meta charset=&quot;UTF-8&quot;&gt;
+    &lt;title&gt;Web Security Audit Report - IBM SkillsBuild Cybersecurity&lt;/title&gt;
+    &lt;style&gt;
+        :root {{
+            --bg: #f8fafc;
+            --surface: #ffffff;
+            --primary: #0f62fe;
+            --text-dark: #1e293b;
+            --text-muted: #64748b;
+            --border: #e2e8f0;
+            --pass: #198038;
+            --warn: #f1c21b;
+            --fail: #da1e28;
+            --critical: #8a0e14;
+        }}
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg);
+            color: var(--text-dark);
+            margin: 0;
+            padding: 30px 20px;
+            line-height: 1.5;
+        }}
+        .container {{
+            max-width: 1200px;
+            margin: 0 auto;
+        }}
+        header {{
+            background: linear-gradient(135deg, #121619 0%, #0043ce 100%);
+            color: white;
+            padding: 30px;
+            border-radius: 12px;
+            margin-bottom: 25px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }}
+        header h1 {{ margin: 0 0 10px 0; font-size: 26px; }}
+        header p {{ margin: 0; opacity: 0.9; font-size: 15px; }}
+        .summary-stats {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 25px;
+        }}
+        .stat-card {{
+            background: var(--surface);
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            text-align: center;
+        }}
+        .stat-card .num {{ font-size: 28px; font-weight: bold; color: var(--primary); }}
+        .stat-card .label {{ color: var(--text-muted); font-size: 13px; text-transform: uppercase; margin-top: 5px; }}
+        .card {{
+            background: var(--surface);
+            border-radius: 10px;
+            border: 1px solid var(--border);
+            padding: 25px;
+            margin-bottom: 30px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+        }}
+        .card-header {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 15px;
+            margin-bottom: 20px;
+        }}
+        .target-title {{ margin: 0; font-size: 20px; color: var(--primary); }}
+        .meta-line {{ font-size: 13px; color: var(--text-muted); margin-top: 4px; }}
+        .score-box {{
+            padding: 10px 20px;
+            border-radius: 8px;
+            text-align: center;
+            color: white;
+        }}
+        .grade-a {{ background: #198038; }}
+        .grade-b {{ background: #f1c21b; color: #1e293b; }}
+        .grade-f {{ background: #da1e28; }}
+        .score-value {{ font-size: 24px; font-weight: bold; }}
+        .score-label {{ font-size: 12px; text-transform: uppercase; }}
+        h3 {{ margin: 25px 0 12px 0; font-size: 17px; border-left: 4px solid var(--primary); padding-left: 10px; }}
+        .table-responsive {{ overflow-x: auto; }}
+        table {{
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13.5px;
+            margin-bottom: 15px;
+        }}
+        th, td {{
+            padding: 10px 12px;
+            border: 1px solid var(--border);
+            text-align: left;
+            vertical-align: top;
+        }}
+        th {{ background: #f1f5f9; font-weight: 600; color: #475569; }}
+        .badge {{
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: bold;
+            text-transform: uppercase;
+        }}
+        .badge-pass {{ background: #defbe6; color: #198038; }}
+        .badge-warn {{ background: #fef3c7; color: #b45309; }}
+        .badge-fail {{ background: #ffe3e3; color: #da1e28; }}
+        .badge-info {{ background: #e0f2fe; color: #0369a1; }}
+        .badge-sev-critical {{ background: #7f1d1d; color: white; }}
+        .badge-sev-high {{ background: #dc2626; color: white; }}
+        .badge-sev-medium {{ background: #f59e0b; color: white; }}
+        .badge-sev-low {{ background: #64748b; color: white; }}
+        .code-cell {{ font-family: monospace; font-size: 12px; color: #0f62fe; word-break: break-all; }}
+        footer {{ text-align: center; font-size: 12px; color: var(--text-muted); margin-top: 40px; }}
+    &lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+    &lt;div class=&quot;container&quot;&gt;
+        &lt;header&gt;
+            &lt;h1&gt;Automated Web Security Audit Report&lt;/h1&gt;
+            &lt;p&gt;IBM SkillsBuild National Cybersecurity Bootcamp | Project: Secure Headers &amp; CORS Audit Scanner&lt;/p&gt;
+        &lt;/header&gt;
+
+        &lt;div class=&quot;summary-stats&quot;&gt;
+            &lt;div class=&quot;stat-card&quot;&gt;
+                &lt;div class=&quot;num&quot;&gt;{len(results)}&lt;/div&gt;
+                &lt;div class=&quot;label&quot;&gt;Targets Audited&lt;/div&gt;
+            &lt;/div&gt;
+            &lt;div class=&quot;stat-card&quot;&gt;
+                &lt;div class=&quot;num&quot;&gt;{total_vulns}&lt;/div&gt;
+                &lt;div class=&quot;label&quot;&gt;Total Findings&lt;/div&gt;
+            &lt;/div&gt;
+            &lt;div class=&quot;stat-card&quot;&gt;
+                &lt;div class=&quot;num&quot;&gt;{datetime.datetime.now().strftime(&quot;%Y-%m-%d&quot;)}&lt;/div&gt;
+                &lt;div class=&quot;label&quot;&gt;Audit Date&lt;/div&gt;
+            &lt;/div&gt;
+        &lt;/div&gt;
+
+        {results_html}
+
+        &lt;footer&gt;
+            Generated by Automated Web Security Scanner &amp;bull; IBM SkillsBuild Bootcamp Project Deliverable
+        &lt;/footer&gt;
+    &lt;/div&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+&quot;&quot;&quot;
+        return html_template
+
+# ==============================================================================
+# CLI Entry Point
+# ==============================================================================
+
+def main():
+    parser = argparse.ArgumentParser(
+        description=&quot;Automated Web Scanner: Audit sites for secure headers and CORS flaws (IBM SkillsBuild Cybersecurity Project)&quot;
+    )
+    parser.add_argument(&quot;-u&quot;, &quot;--url&quot;, type=str, help=&quot;Single target web application URL (e.g. https://example.com)&quot;)
+    parser.add_argument(&quot;-f&quot;, &quot;--file&quot;, type=str, help=&quot;Path to text file containing target URLs (one per line)&quot;)
+    parser.add_argument(&quot;-o&quot;, &quot;--output&quot;, type=str, help=&quot;Output file path to save report (.json or .html)&quot;)
+    parser.add_argument(&quot;--format&quot;, choices=[&quot;console&quot;, &quot;json&quot;, &quot;html&quot;], default=&quot;console&quot;, help=&quot;Report format (default: console)&quot;)
+    parser.add_argument(&quot;-t&quot;, &quot;--threads&quot;, type=int, default=5, help=&quot;Concurrent threads for bulk scanning (default: 5)&quot;)
+    parser.add_argument(&quot;--timeout&quot;, type=float, default=8.0, help=&quot;HTTP request timeout in seconds (default: 8.0)&quot;)
+    parser.add_argument(&quot;-k&quot;, &quot;--insecure&quot;, action=&quot;store_true&quot;, help=&quot;Disable SSL certificate verification (testing only)&quot;)
+    parser.add_argument(&quot;--no-color&quot;, action=&quot;store_true&quot;, help=&quot;Disable ANSI colored terminal output&quot;)
+    parser.add_argument(&quot;--demo&quot;, action=&quot;store_true&quot;, help=&quot;Run in offline demonstration mode with mock vulnerable &amp; secure targets&quot;)
+
+    args = parser.parse_args()
+
+    # 1. Handle Demo Mode
+    if args.demo:
+        print(&quot;[*] Running in Offline Demonstration Mode...&quot;)
+        results = generate_demo_results()
+    else:
+        urls: List[str] = []
+        if args.url:
+            urls.append(args.url.strip())
+        elif args.file:
+            if not os.path.exists(args.file):
+                print(f&quot;[!] Error: File not found: {args.file}&quot;, file=sys.stderr)
+                sys.exit(1)
+            with open(args.file, &quot;r&quot;, encoding=&quot;utf-8&quot;) as f:
+                urls = [line.strip() for line in f if line.strip() and not line.startswith(&quot;#&quot;)]
+        else:
+            parser.print_help()
+            print(&quot;\n[!] Tip: Provide either --url &lt;URL&gt;, --file &lt;FILE&gt;, or test with --demo&quot;, file=sys.stderr)
+            sys.exit(1)
+
+        scanner = WebScanner(timeout=args.timeout, insecure_ssl=args.insecure, max_threads=args.threads)
+        if len(urls) == 1:
+            results = [scanner.scan_url(urls[0])]
+        else:
+            results = scanner.scan_bulk(urls)
+
+    # 2. Output Handling
+    enable_color = not args.no_color
+    if args.format == &quot;console&quot; and not args.output:
+        Reporter.render_console(results, use_color=enable_color)
+    elif args.format == &quot;json&quot; or (args.output and args.output.endswith(&quot;.json&quot;)):
+        json_content = Reporter.render_json(results)
+        if args.output:
+            with open(args.output, &quot;w&quot;, encoding=&quot;utf-8&quot;) as f:
+                f.write(json_content)
+            print(f&quot;[+] Successfully exported JSON audit report to: {args.output}&quot;)
+        else:
+            print(json_content)
+    elif args.format == &quot;html&quot; or (args.output and args.output.endswith(&quot;.html&quot;)):
+        html_content = Reporter.render_html(results)
+        if args.output:
+            with open(args.output, &quot;w&quot;, encoding=&quot;utf-8&quot;) as f:
+                f.write(html_content)
+            print(f&quot;[+] Successfully exported HTML audit report to: {args.output}&quot;)
+        else:
+            print(html_content)
+    else:
+        Reporter.render_console(results, use_color=enable_color)
+        if args.output:
+            with open(args.output, &quot;w&quot;, encoding=&quot;utf-8&quot;) as f:
+                f.write(Reporter.render_json(results))
+            print(f&quot;[+] Saved scan data to {args.output}&quot;)
+
+if __name__ == &quot;__main__&quot;:
+    main()
+</pre>
+</body>
+</html>

@@ -3,7 +3,7 @@
 Automated Web Security Scanner: Secure Headers and CORS Flaws Auditor
 ====================================================================
 Project: IBM SkillsBuild National Cybersecurity Bootcamp
-Author: Cybersecurity Bootcamp Participant
+Author: Tarun Singh (GitHub: tarun-singh9897)
 Topic: 2. Automated Web Scanner: Programmed a Python script to audit sites for secure headers and CORS flaws.
 
 Description:

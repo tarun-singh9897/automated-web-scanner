@@ -109,8 +109,8 @@ p_meta.paragraph_format.space_before = Pt(20)
 p_meta.paragraph_format.space_after = Pt(24)
 r_m = p_meta.add_run(
     "Project Topic #2: Automated Web Scanner\n"
-    "Participant: Tanisha\n"
-    "GitHub: tsh471\n"
+    "Participant: Tarun Singh\n"
+    "GitHub: tarun-singh9897\n"
     "Track: Cybersecurity & Web Defense\n"
     "Date: October 2026"
 )

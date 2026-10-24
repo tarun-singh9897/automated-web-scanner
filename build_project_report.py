@@ -250,8 +250,8 @@ html_content = """<!DOCTYPE html>
     <div class="cover-footer">
         <div class="meta-group">
             <strong>Participant / Author</strong>
-            Tanisha<br>
-            GitHub: tsh471<br>
+            Tarun Singh<br>
+            GitHub: tarun-singh9897<br>
             Track: Cybersecurity & Web Defense
         </div>
         <div class="meta-group">

@@ -93,8 +93,8 @@ This repository contains an automated, multi-threaded Python security scanner de
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/your-username/automated-web-security-scanner.git
-   cd automated-web-security-scanner
+   git clone https://github.com/tarun-singh9897/automated-web-scanner.git
+   cd automated-web-scanner
    ```
 
 2. **Verify Python version (Python 3.8+ recommended):**

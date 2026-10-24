@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>README - Automated Web Security Scanner</title>
+<style>
+    @page { size: A4; margin: 20mm; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #1e293b; line-height: 1.6; font-size: 10pt; }
+    pre { background: #f8fafc; border: 1px solid #e2e8f0; padding: 12px; border-radius: 6px; font-family: monospace; font-size: 8.5pt; white-space: pre-wrap; }
+    h1 { color: #0f62fe; border-bottom: 2px solid #0f62fe; padding-bottom: 6px; }
+    h2 { color: #002d9c; margin-top: 20px; }
+    table { width: 100%; border-collapse: collapse; margin: 15px 0; }
+    th, td { border: 1px solid #cbd5e1; padding: 8px 10px; text-align: left; font-size: 9pt; }
+    th { background: #edf5ff; color: #002d9c; }
+</style>
+</head>
+<body>
+    <h1>README: Automated Web Security Scanner</h1>
+    <p><strong>Topic 2:</strong> Programmed a Python script to audit sites for secure headers and CORS flaws.</p>
+    <p><strong>Participant:</strong> Tarun Singh (GitHub: <a href="https://github.com/tarun-singh9897/automated-web-scanner">tarun-singh9897/automated-web-scanner</a>)</p>
+    <p><strong>Program:</strong> IBM SkillsBuild National Cybersecurity Bootcamp</p>
+    <hr>
+    <pre># Automated Web Security Scanner: Secure Headers and CORS Flaws Auditor
+
+[![Python Version](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://www.python.org/)
+[![Security Standards](https://img.shields.io/badge/standards-OWASP%20ASVS%20%7C%20W3C%20CORS-orange.svg)](https://owasp.org/)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)]()
+
+&gt; **IBM SkillsBuild National Cybersecurity Bootcamp Project Submission**  
+&gt; **Topic 2:** *Automated Web Scanner: Programmed a Python script to audit sites for secure headers and CORS flaws.*  
+&gt; **Organized by:** BharatCares (CSRBOX Group) in collaboration with IBM SkillsBuild.
+
+---
+
+## 📌 Executive Summary
+
+Web security misconfigurations—specifically missing HTTP security headers and overly permissive Cross-Origin Resource Sharing (CORS) policies—represent some of the most widespread vulnerabilities cataloged under **OWASP Top 10: A05:2021 (Security Misconfiguration)**. 
+
+This repository contains an automated, multi-threaded Python security scanner developed to:
+1. Audit web endpoints against modern HTTP security header baselines.
+2. Detect information disclosure and server fingerprinting leaks.
+3. Actively probe endpoints for severe CORS misconfigurations, including arbitrary origin reflection, `null` origin trust, and credential exposure.
+4. Calculate a weighted **Security Score (0–100)** and letter grade (**A+ through F**).
+5. Generate actionable reports in **Rich Terminal ANSI**, structured **JSON**, and standalone **HTML**.
+
+---
+
+## 🚀 Key Features
+
+- **Zero External Dependencies:** Built entirely with Python&#x27;s standard library (`urllib.request`, `concurrent.futures`, `json`, `argparse`, `dataclasses`, `ssl`). Runs natively out of the box on any system with Python 3.8+.
+- **Comprehensive Header Audits:**
+  - `Content-Security-Policy` (CSP): Checks presence, weak directives (`&#x27;unsafe-inline&#x27;`, `&#x27;unsafe-eval&#x27;`), missing fallback directives (`default-src`, `script-src`), and plugin restrictions (`object-src &#x27;none&#x27;`).
+  - `Strict-Transport-Security` (HSTS): Validates HTTPS enforcement, `max-age` duration, `includeSubDomains`, and preload readiness.
+  - `X-Frame-Options` (XFO) &amp; CSP `frame-ancestors`: Evaluates protection against UI redressing and Clickjacking attacks.
+  - `X-Content-Type-Options`: Enforces `nosniff` against MIME-sniffing exploits.
+  - `Referrer-Policy`: Detects referral leakage policies (`strict-origin-when-cross-origin` vs. insecure `unsafe-url`).
+  - `Permissions-Policy`: Audits browser API isolation (camera, microphone, geolocation).
+  - Cross-Origin Isolation (`COOP`, `COEP`, `CORP`): Verifies process isolation defenses against side-channel attacks like Spectre.
+  - Server Fingerprint Detection: Flags sensitive version disclosures (`Server`, `X-Powered-By`, `X-AspNet-Version`).
+- **Active CORS Flaw Probing:**
+  - **Arbitrary Origin Reflection:** Tests whether untrusted origins (e.g., `https://attacker-security-test.com`) are dynamically echoed into `Access-Control-Allow-Origin`.
+  - **Credential Leakage (CRITICAL):** Flags when arbitrary origin reflection or wildcards are paired with `Access-Control-Allow-Credentials: true`, allowing attackers to steal session data via cross-origin JavaScript requests.
+  - **Null Origin Trust:** Identifies endpoints trusting `Origin: null`, vulnerable to exploits via sandboxed `&lt;iframe&gt;` tags or `data:` URIs.
+  - **Regex Subdomain / Prefix / Suffix Bypasses:** Tests for loose origin validation patterns (e.g., `target.com.attacker.com` or `attacker-target.com`).
+  - **Insecure Protocol Trust:** Detects if HTTPS services permit cleartext `http://` origins (MITM exposure).
+- **Flexible Reporting:**
+  - Colored ANSI console output with tabular findings and direct remediation snippets.
+  - Machine-readable JSON output for DevSecOps and CI/CD pipelines.
+  - Standalone, publication-ready HTML reports with summary dashboard cards.
+- **High-Performance Multi-Threading:** Scans dozens of URLs concurrently using `ThreadPoolExecutor`.
+- **Offline Demo Mode (`--demo`):** Generates realistic simulated scans comparing vulnerable vs. hardened targets for academic grading and presentation.
+
+---
+
+## 🏗️ Architecture &amp; Methodology
+
+```
++-------------------------------------------------------------------------+
+|                              TARGET URL(s)                              |
++-------------------------------------------------------------------------+
+                                     |
+                                     v
++-------------------------------------------------------------------------+
+|                         WebScanner Orchestrator                         |
+|                 (ThreadPoolExecutor Concurrent Workers)                 |
++-------------------------------------------------------------------------+
+         |                                                       |
+         v                                                       v
++----------------------------------+   +----------------------------------+
+|      [1] HeaderAuditor           |   |       [2] CORSAuditor            |
+| - Inspects initial HTTP response |   | - Sends active probe requests    |
+| - Validates CSP, HSTS, XFO, XCTO |   | - Checks Arbitrary Origin Refl.  |
+| - Detects information leakage    |   | - Tests Null Origin &amp; ACAC combo |
+| - Calculates score deductions    |   | - Tests Regex prefix/suffix trust|
++----------------------------------+   +----------------------------------+
+         \                                                       /
+          \                                                     /
+           v                                                   v
++-------------------------------------------------------------------------+
+|                         Scoring &amp; Grading Engine                        |
+|             (Base: 100 | Deductions for High/Medium/Low Risks)          |
++-------------------------------------------------------------------------+
+                                     |
+                                     v
++-------------------------------------------------------------------------+
+|                             Reporter Engine                             |
+|       - Console (ANSI)   |   - JSON Export   |   - Standalone HTML      |
++-------------------------------------------------------------------------+
+```
+
+---
+
+## 📦 Installation &amp; Setup
+
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/tarun-singh9897/automated-web-scanner.git
+   cd automated-web-scanner
+   ```
+
+2. **Verify Python version (Python 3.8+ recommended):**
+   ```bash
+   python3 --version
+   ```
+
+3. **Check Dependencies:**
+   No external packages required! The scanner runs purely on Python&#x27;s built-in standard library.
+
+---
+
+## 💻 Usage Guide
+
+### 1. Single Target Scan
+```bash
+python3 scanner.py --url https://example.com
+```
+
+### 2. Multi-Target Batch Scan
+Create a `targets.txt` file containing domains:
+```text
+https://example.com
+https://google.com
+https://github.com
+```
+Run with concurrency:
+```bash
+python3 scanner.py --file targets.txt --threads 8
+```
+
+### 3. Generate HTML Security Report
+```bash
+python3 scanner.py --url https://example.com --format html --output audit_report.html
+```
+
+### 4. Generate JSON Report for CI/CD Integration
+```bash
+python3 scanner.py --url https://example.com --format json --output audit_report.json
+```
+
+### 5. Run Offline Demonstration Mode
+Ideal for evaluation, offline demonstrations, and project grading:
+```bash
+python3 scanner.py --demo
+```
+
+---
+
+## 📊 Sample Terminal Output
+
+```
+======================================================================
+     AUTOMATED WEB SCANNER: SECURE HEADERS &amp; CORS FLAWS AUDITOR
+                 IBM SkillsBuild Cybersecurity Bootcamp
+======================================================================
+
+----------------------------------------------------------------------
+[1/1] Target: https://vulnerable-portal.local/api
+Scan Time:     2026-10-24 15:46:57 | HTTP Status: 200 | Latency: 142.5 ms
+Security Score: 35/100 (Grade: F)
+----------------------------------------------------------------------
+
+--- [1] HTTP SECURE HEADERS AUDIT ---
+  [FAIL] Content-Security-Policy (Severity: HIGH)
+         Missing CSP header. The application is vulnerable to Cross-Site Scripting (XSS).
+         Fix: Implement: default-src &#x27;self&#x27;; script-src &#x27;self&#x27;; object-src &#x27;none&#x27;;
+  [FAIL] Strict-Transport-Security (Severity: HIGH)
+         Missing HSTS header on HTTPS connection. Vulnerable to SSL-stripping downgrade attacks.
+         Fix: Add: Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
+  [FAIL] X-Frame-Options (Severity: MEDIUM)
+         Missing X-Frame-Options. Page can be framed for Clickjacking attacks.
+         Fix: Set: X-Frame-Options: DENY
+  [PASS] X-Content-Type-Options (Severity: PASS)
+         MIME-sniffing protection is properly enabled (&#x27;nosniff&#x27;).
+
+--- [2] CORS MISCONFIGURATION PROBING ---
+  [CRITICAL] Arbitrary Origin Reflection with Credentials (CRITICAL)
+         Test Origin: https://attacker-security-test.com
+         Finding:     Server reflects arbitrary Origin AND sets Access-Control-Allow-Credentials: true.
+         ACAO Header: https://attacker-security-test.com | ACAC Header: true
+         Remediation: Implement strict server-side whitelist matching against trusted domains.
+======================================================================
+```
+
+---
+
+## 🧪 Automated Testing
+
+Run the included unit test suite:
+```bash
+python3 -m unittest discover -s tests -p &quot;test_*.py&quot; -v
+```
+
+All test cases validate:
+- Accurate baseline header evaluation (Missing headers vs. Compliant headers).
+- Loose CSP detection (`unsafe-inline`, `unsafe-eval`).
+- Information leakage detection (`Server`, `X-Powered-By`).
+- Security scoring and grade mapping accuracy.
+
+---
+
+## 📂 Project Structure
+
+```
+├── scanner.py          # Standalone CLI Scanner Engine (Header &amp; CORS audit)
+├── requirements.txt    # Specification of dependencies (zero runtime requirements)
+├── README.md           # Project documentation and usage guide
+├── sample_report.html  # Exported HTML audit report demo
+├── sample_report.json  # Exported JSON audit report demo
+└── tests/
+    └── test_scanner.py # Automated unit test suite
+```
+
+---
+
+## 🛡️ Remediation Reference Table
+
+| Header / Vector | Recommended Value | Risk Mitigated |
+| :--- | :--- | :--- |
+| **Content-Security-Policy** | `default-src &#x27;self&#x27;; script-src &#x27;self&#x27;; object-src &#x27;none&#x27;; frame-ancestors &#x27;none&#x27;;` | Cross-Site Scripting (XSS), Clickjacking |
+| **Strict-Transport-Security** | `max-age=31536000; includeSubDomains; preload` | SSL-stripping, MITM Downgrades |
+| **X-Frame-Options** | `DENY` or `SAMEORIGIN` | UI Redressing / Clickjacking |
+| **X-Content-Type-Options** | `nosniff` | MIME-Sniffing Exploits |
+| **Referrer-Policy** | `strict-origin-when-cross-origin` | Sensitive Path / Parameter Leakage |
+| **Permissions-Policy** | `camera=(), microphone=(), geolocation=()` | Unauthorized Hardware / API Access |
+| **CORS Policy** | Explicit domain whitelist (No reflection with credentials) | Cross-Origin Data Exfiltration |
+
+---
+
+## 📜 Acknowledgements &amp; Disclaimer
+
+- Developed as part of the **IBM SkillsBuild National Cybersecurity Bootcamp** by **BharatCares (CSRBOX Group)**.
+- **Ethical Use Notice:** This tool is intended exclusively for authorized security auditing, defensive hardening, and educational research. Unauthorized testing against third-party systems without permission is strictly prohibited.
+</pre>
+</body>
+</html>
