@@ -1,0 +1,156 @@
+{
+  "scanner_version": "1.0.0",
+  "project": "IBM SkillsBuild Cybersecurity Bootcamp",
+  "report_generated_at": "2026-10-24T15:47:08.553263",
+  "target_count": 2,
+  "results": [
+    {
+      "target_url": "https://vulnerable-portal.local/api",
+      "scan_timestamp": "2026-10-24 15:47:08",
+      "status_code": 200,
+      "response_time_ms": 142.5,
+      "server_ip": null,
+      "security_score": 35,
+      "grade": "F",
+      "header_findings": [
+        {
+          "header": "Content-Security-Policy",
+          "status": "FAIL",
+          "severity": "HIGH",
+          "value": null,
+          "description": "Missing CSP header. The application is vulnerable to Cross-Site Scripting (XSS) and Clickjacking.",
+          "remediation": "Implement: default-src 'self'; script-src 'self'; object-src 'none';"
+        },
+        {
+          "header": "Strict-Transport-Security",
+          "status": "FAIL",
+          "severity": "HIGH",
+          "value": null,
+          "description": "Missing HSTS header on HTTPS connection. Vulnerable to SSL-stripping downgrade attacks.",
+          "remediation": "Add: Strict-Transport-Security: max-age=31536000; includeSubDomains; preload"
+        },
+        {
+          "header": "X-Frame-Options",
+          "status": "FAIL",
+          "severity": "MEDIUM",
+          "value": null,
+          "description": "Missing X-Frame-Options. Page can be framed by arbitrary sites for Clickjacking attacks.",
+          "remediation": "Set: X-Frame-Options: DENY"
+        },
+        {
+          "header": "X-Content-Type-Options",
+          "status": "PASS",
+          "severity": "PASS",
+          "value": "nosniff",
+          "description": "MIME-sniffing protection is properly enabled ('nosniff').",
+          "remediation": "Maintain existing header configuration."
+        },
+        {
+          "header": "Information Leakage",
+          "status": "FAIL",
+          "severity": "LOW",
+          "value": "server: Apache/2.4.41 (Ubuntu); x-powered-by: PHP/7.4.3",
+          "description": "Server exposes internal software versions in response headers.",
+          "remediation": "Suppress server banners in apache2.conf and set expose_php = Off."
+        }
+      ],
+      "cors_findings": [
+        {
+          "probe_type": "Arbitrary Origin Reflection with Credentials (CRITICAL)",
+          "test_origin": "https://attacker-security-test.com",
+          "severity": "CRITICAL",
+          "vulnerable": true,
+          "description": "Server reflects arbitrary Origin 'https://attacker-security-test.com' AND sets Access-Control-Allow-Credentials: true. Allows attackers to steal sensitive user data via cross-site fetch.",
+          "acao_header": "https://attacker-security-test.com",
+          "acac_header": "true",
+          "remediation": "Implement strict server-side whitelist matching against trusted domains. Never dynamically reflect untrusted origins with credentials."
+        },
+        {
+          "probe_type": "Null Origin Trust",
+          "test_origin": "null",
+          "severity": "HIGH",
+          "vulnerable": true,
+          "description": "Server explicitly trusts 'null' origin. Sandboxed iframe attacks can extract protected data.",
+          "acao_header": "null",
+          "acac_header": "false",
+          "remediation": "Never whitelist or return 'Access-Control-Allow-Origin: null'."
+        }
+      ],
+      "raw_headers": {},
+      "errors": []
+    },
+    {
+      "target_url": "https://secure-bank-app.local",
+      "scan_timestamp": "2026-10-24 15:47:08",
+      "status_code": 200,
+      "response_time_ms": 88.2,
+      "server_ip": null,
+      "security_score": 98,
+      "grade": "A+",
+      "header_findings": [
+        {
+          "header": "Content-Security-Policy",
+          "status": "PASS",
+          "severity": "PASS",
+          "value": "default-src 'self'; script-src 'self'; object-src 'none'; frame-ancestors 'none';",
+          "description": "Strong Content-Security-Policy header is configured.",
+          "remediation": "Maintain existing restrictive CSP directives."
+        },
+        {
+          "header": "Strict-Transport-Security",
+          "status": "PASS",
+          "severity": "PASS",
+          "value": "max-age=31536000; includeSubDomains; preload",
+          "description": "Strong HSTS configuration enforces encrypted connections.",
+          "remediation": "Keep HSTS enabled and maintain preload eligibility."
+        },
+        {
+          "header": "X-Frame-Options",
+          "status": "PASS",
+          "severity": "PASS",
+          "value": "DENY",
+          "description": "Properly configured with 'DENY' to prevent UI redressing / clickjacking.",
+          "remediation": "Keep existing policy in place."
+        },
+        {
+          "header": "X-Content-Type-Options",
+          "status": "PASS",
+          "severity": "PASS",
+          "value": "nosniff",
+          "description": "MIME-sniffing protection is properly enabled ('nosniff').",
+          "remediation": "Maintain existing header configuration."
+        },
+        {
+          "header": "Referrer-Policy",
+          "status": "PASS",
+          "severity": "PASS",
+          "value": "strict-origin-when-cross-origin",
+          "description": "Secure Referrer-Policy restricts referral data leakage.",
+          "remediation": "Maintain safe Referrer-Policy."
+        },
+        {
+          "header": "Information Leakage",
+          "status": "PASS",
+          "severity": "PASS",
+          "value": "None detected",
+          "description": "No sensitive server banners or software version headers detected.",
+          "remediation": "Maintain banner suppression."
+        }
+      ],
+      "cors_findings": [
+        {
+          "probe_type": "CORS Security Baseline",
+          "test_origin": "N/A",
+          "severity": "PASS",
+          "vulnerable": false,
+          "description": "Endpoint does not insecurely reflect arbitrary origins or trust 'null' origin.",
+          "acao_header": null,
+          "acac_header": null,
+          "remediation": "Maintain strict origin whitelisting on all sensitive API endpoints."
+        }
+      ],
+      "raw_headers": {},
+      "errors": []
+    }
+  ]
+}

@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Web Security Audit Report - IBM SkillsBuild Cybersecurity</title>
+    <style>
+        :root {
+            --bg: #f8fafc;
+            --surface: #ffffff;
+            --primary: #0f62fe;
+            --text-dark: #1e293b;
+            --text-muted: #64748b;
+            --border: #e2e8f0;
+            --pass: #198038;
+            --warn: #f1c21b;
+            --fail: #da1e28;
+            --critical: #8a0e14;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg);
+            color: var(--text-dark);
+            margin: 0;
+            padding: 30px 20px;
+            line-height: 1.5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        header {
+            background: linear-gradient(135deg, #121619 0%, #0043ce 100%);
+            color: white;
+            padding: 30px;
+            border-radius: 12px;
+            margin-bottom: 25px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        header h1 { margin: 0 0 10px 0; font-size: 26px; }
+        header p { margin: 0; opacity: 0.9; font-size: 15px; }
+        .summary-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 25px;
+        }
+        .stat-card {
+            background: var(--surface);
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            text-align: center;
+        }
+        .stat-card .num { font-size: 28px; font-weight: bold; color: var(--primary); }
+        .stat-card .label { color: var(--text-muted); font-size: 13px; text-transform: uppercase; margin-top: 5px; }
+        .card {
+            background: var(--surface);
+            border-radius: 10px;
+            border: 1px solid var(--border);
+            padding: 25px;
+            margin-bottom: 30px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+        }
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 15px;
+            margin-bottom: 20px;
+        }
+        .target-title { margin: 0; font-size: 20px; color: var(--primary); }
+        .meta-line { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
+        .score-box {
+            padding: 10px 20px;
+            border-radius: 8px;
+            text-align: center;
+            color: white;
+        }
+        .grade-a { background: #198038; }
+        .grade-b { background: #f1c21b; color: #1e293b; }
+        .grade-f { background: #da1e28; }
+        .score-value { font-size: 24px; font-weight: bold; }
+        .score-label { font-size: 12px; text-transform: uppercase; }
+        h3 { margin: 25px 0 12px 0; font-size: 17px; border-left: 4px solid var(--primary); padding-left: 10px; }
+        .table-responsive { overflow-x: auto; }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13.5px;
+            margin-bottom: 15px;
+        }
+        th, td {
+            padding: 10px 12px;
+            border: 1px solid var(--border);
+            text-align: left;
+            vertical-align: top;
+        }
+        th { background: #f1f5f9; font-weight: 600; color: #475569; }
+        .badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+        .badge-pass { background: #defbe6; color: #198038; }
+        .badge-warn { background: #fef3c7; color: #b45309; }
+        .badge-fail { background: #ffe3e3; color: #da1e28; }
+        .badge-info { background: #e0f2fe; color: #0369a1; }
+        .badge-sev-critical { background: #7f1d1d; color: white; }
+        .badge-sev-high { background: #dc2626; color: white; }
+        .badge-sev-medium { background: #f59e0b; color: white; }
+        .badge-sev-low { background: #64748b; color: white; }
+        .code-cell { font-family: monospace; font-size: 12px; color: #0f62fe; word-break: break-all; }
+        footer { text-align: center; font-size: 12px; color: var(--text-muted); margin-top: 40px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Automated Web Security Audit Report</h1>
+            <p>IBM SkillsBuild National Cybersecurity Bootcamp | Project: Secure Headers & CORS Audit Scanner</p>
+        </header>
+
+        <div class="summary-stats">
+            <div class="stat-card">
+                <div class="num">2</div>
+                <div class="label">Targets Audited</div>
+            </div>
+            <div class="stat-card">
+                <div class="num">6</div>
+                <div class="label">Total Findings</div>
+            </div>
+            <div class="stat-card">
+                <div class="num">2026-10-24</div>
+                <div class="label">Audit Date</div>
+            </div>
+        </div>
+
+        
+            <div class="card">
+                <div class="card-header">
+                    <div>
+                        <h2 class="target-title">https://vulnerable-portal.local/api</h2>
+                        <div class="meta-line">Scan Time: 2026-10-24 15:47:08 | HTTP Status: 200 | Latency: 142.5 ms</div>
+                    </div>
+                    <div class="score-box grade-f">
+                        <div class="score-value">35/100</div>
+                        <div class="score-label">Grade: F</div>
+                    </div>
+                </div>
+
+                <h3>HTTP Security Headers Audit</h3>
+                <div class="table-responsive">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Header</th>
+                                <th>Status</th>
+                                <th>Severity</th>
+                                <th>Finding & Impact</th>
+                                <th>Remediation Guide</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            
+                <tr>
+                    <td><strong>Content-Security-Policy</strong></td>
+                    <td><span class="badge badge-fail">FAIL</span></td>
+                    <td><span class="badge badge-sev-high">HIGH</span></td>
+                    <td>Missing CSP header. The application is vulnerable to Cross-Site Scripting (XSS) and Clickjacking.</td>
+                    <td class="code-cell">Implement: default-src &#x27;self&#x27;; script-src &#x27;self&#x27;; object-src &#x27;none&#x27;;</td>
+                </tr>
+                
+                <tr>
+                    <td><strong>Strict-Transport-Security</strong></td>
+                    <td><span class="badge badge-fail">FAIL</span></td>
+                    <td><span class="badge badge-sev-high">HIGH</span></td>
+                    <td>Missing HSTS header on HTTPS connection. Vulnerable to SSL-stripping downgrade attacks.</td>
+                    <td class="code-cell">Add: Strict-Transport-Security: max-age=31536000; includeSubDomains; preload</td>
+                </tr>
+                
+                <tr>
+                    <td><strong>X-Frame-Options</strong></td>
+                    <td><span class="badge badge-fail">FAIL</span></td>
+                    <td><span class="badge badge-sev-medium">MEDIUM</span></td>
+                    <td>Missing X-Frame-Options. Page can be framed by arbitrary sites for Clickjacking attacks.</td>
+                    <td class="code-cell">Set: X-Frame-Options: DENY</td>
+                </tr>
+                
+                <tr>
+                    <td><strong>X-Content-Type-Options</strong></td>
+                    <td><span class="badge badge-pass">PASS</span></td>
+                    <td><span class="badge badge-sev-pass">PASS</span></td>
+                    <td>MIME-sniffing protection is properly enabled (&#x27;nosniff&#x27;).</td>
+                    <td class="code-cell">Maintain existing header configuration.</td>
+                </tr>
+                
+                <tr>
+                    <td><strong>Information Leakage</strong></td>
+                    <td><span class="badge badge-fail">FAIL</span></td>
+                    <td><span class="badge badge-sev-low">LOW</span></td>
+                    <td>Server exposes internal software versions in response headers.</td>
+                    <td class="code-cell">Suppress server banners in apache2.conf and set expose_php = Off.</td>
+                </tr>
+                
+                        </tbody>
+                    </table>
+                </div>
+
+                <h3>Cross-Origin Resource Sharing (CORS) Audit</h3>
+                <div class="table-responsive">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Probe Scenario</th>
+                                <th>Test Origin</th>
+                                <th>Outcome</th>
+                                <th>Severity</th>
+                                <th>Observation</th>
+                                <th>Remediation Guide</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            
+                <tr>
+                    <td><strong>Arbitrary Origin Reflection with Credentials (CRITICAL)</strong></td>
+                    <td><code>https://attacker-security-test.com</code></td>
+                    <td><span class="badge badge-fail">VULNERABLE</span></td>
+                    <td><span class="badge badge-sev-critical">CRITICAL</span></td>
+                    <td>Server reflects arbitrary Origin &#x27;https://attacker-security-test.com&#x27; AND sets Access-Control-Allow-Credentials: true. Allows attackers to steal sensitive user data via cross-site fetch.<br><small><strong>ACAO:</strong> https://attacker-security-test.com | <strong>ACAC:</strong> true</small></td>
+                    <td class="code-cell">Implement strict server-side whitelist matching against trusted domains. Never dynamically reflect untrusted origins with credentials.</td>
+                </tr>
+                
+                <tr>
+                    <td><strong>Null Origin Trust</strong></td>
+                    <td><code>null</code></td>
+                    <td><span class="badge badge-fail">VULNERABLE</span></td>
+                    <td><span class="badge badge-sev-high">HIGH</span></td>
+                    <td>Server explicitly trusts &#x27;null&#x27; origin. Sandboxed iframe attacks can extract protected data.<br><small><strong>ACAO:</strong> null | <strong>ACAC:</strong> false</small></td>
+                    <td class="code-cell">Never whitelist or return &#x27;Access-Control-Allow-Origin: null&#x27;.</td>
+                </tr>
+                
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <div class="card">
+                <div class="card-header">
+                    <div>
+                        <h2 class="target-title">https://secure-bank-app.local</h2>
+                        <div class="meta-line">Scan Time: 2026-10-24 15:47:08 | HTTP Status: 200 | Latency: 88.2 ms</div>
+                    </div>
+                    <div class="score-box grade-a">
+                        <div class="score-value">98/100</div>
+                        <div class="score-label">Grade: A+</div>
+                    </div>
+                </div>
+
+                <h3>HTTP Security Headers Audit</h3>
+                <div class="table-responsive">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Header</th>
+                                <th>Status</th>
+                                <th>Severity</th>
+                                <th>Finding & Impact</th>
+                                <th>Remediation Guide</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            
+                <tr>
+                    <td><strong>Content-Security-Policy</strong></td>
+                    <td><span class="badge badge-pass">PASS</span></td>
+                    <td><span class="badge badge-sev-pass">PASS</span></td>
+                    <td>Strong Content-Security-Policy header is configured.</td>
+                    <td class="code-cell">Maintain existing restrictive CSP directives.</td>
+                </tr>
+                
+                <tr>
+                    <td><strong>Strict-Transport-Security</strong></td>
+                    <td><span class="badge badge-pass">PASS</span></td>
+                    <td><span class="badge badge-sev-pass">PASS</span></td>
+                    <td>Strong HSTS configuration enforces encrypted connections.</td>
+                    <td class="code-cell">Keep HSTS enabled and maintain preload eligibility.</td>
+                </tr>
+                
+                <tr>
+                    <td><strong>X-Frame-Options</strong></td>
+                    <td><span class="badge badge-pass">PASS</span></td>
+                    <td><span class="badge badge-sev-pass">PASS</span></td>
+                    <td>Properly configured with &#x27;DENY&#x27; to prevent UI redressing / clickjacking.</td>
+                    <td class="code-cell">Keep existing policy in place.</td>
+                </tr>
+                
+                <tr>
+                    <td><strong>X-Content-Type-Options</strong></td>
+                    <td><span class="badge badge-pass">PASS</span></td>
+                    <td><span class="badge badge-sev-pass">PASS</span></td>
+                    <td>MIME-sniffing protection is properly enabled (&#x27;nosniff&#x27;).</td>
+                    <td class="code-cell">Maintain existing header configuration.</td>
+                </tr>
+                
+                <tr>
+                    <td><strong>Referrer-Policy</strong></td>
+                    <td><span class="badge badge-pass">PASS</span></td>
+                    <td><span class="badge badge-sev-pass">PASS</span></td>
+                    <td>Secure Referrer-Policy restricts referral data leakage.</td>
+                    <td class="code-cell">Maintain safe Referrer-Policy.</td>
+                </tr>
+                
+                <tr>
+                    <td><strong>Information Leakage</strong></td>
+                    <td><span class="badge badge-pass">PASS</span></td>
+                    <td><span class="badge badge-sev-pass">PASS</span></td>
+                    <td>No sensitive server banners or software version headers detected.</td>
+                    <td class="code-cell">Maintain banner suppression.</td>
+                </tr>
+                
+                        </tbody>
+                    </table>
+                </div>
+
+                <h3>Cross-Origin Resource Sharing (CORS) Audit</h3>
+                <div class="table-responsive">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Probe Scenario</th>
+                                <th>Test Origin</th>
+                                <th>Outcome</th>
+                                <th>Severity</th>
+                                <th>Observation</th>
+                                <th>Remediation Guide</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            
+                <tr>
+                    <td><strong>CORS Security Baseline</strong></td>
+                    <td><code>N/A</code></td>
+                    <td><span class="badge badge-pass">SECURE</span></td>
+                    <td><span class="badge badge-sev-pass">PASS</span></td>
+                    <td>Endpoint does not insecurely reflect arbitrary origins or trust &#x27;null&#x27; origin.<br><small><strong>ACAO:</strong> None | <strong>ACAC:</strong> N/A</small></td>
+                    <td class="code-cell">Maintain strict origin whitelisting on all sensitive API endpoints.</td>
+                </tr>
+                
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+
+        <footer>
+            Generated by Automated Web Security Scanner &bull; IBM SkillsBuild Bootcamp Project Deliverable
+        </footer>
+    </div>
+</body>
+</html>

@@ -1,0 +1,11 @@
+# Automated Web Scanner: Secure Headers and CORS Flaws Auditor
+# IBM SkillsBuild National Cybersecurity Bootcamp Deliverable
+
+# Core Scanner Runtime:
+# The core scanner is built strictly using the Python 3 Standard Library
+# (urllib, concurrent.futures, json, argparse, dataclasses, ssl, re, html).
+# Therefore, zero external packages are required to run the scanner.
+
+# Optional Enhancement Packages (for development, extended reporting, & testing):
+# requests>=2.31.0
+# pypdf>=6.14.0
